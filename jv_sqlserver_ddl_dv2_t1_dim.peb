@@ -1,0 +1,12 @@
+{%- import "wsl_sqlserver_utility_bv" -%}
+
+{%- fetch table.target -%}
+{%- fetch settings -%}
+
+CREATE OR ALTER VIEW {{table.target.schema}}.{{table.name}}{%br%}
+{{- addSetInsertTargetColumns() }}
+AS SELECT{%br%}
+{{- addSetInsertColumns() }}
+{{- addT1DimFromClause() }}
+
+

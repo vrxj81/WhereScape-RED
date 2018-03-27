@@ -1,0 +1,285 @@
+{# --                                                                                                                                                       -- #}
+{# --    © Wherescape Ltd 2017. Wherescape Ltd permits you to copy this Template solely for use with the RED software, and to modify this Template          -- #}
+{# --    for the purposes of using that modified Template with the RED software, but does not permit copying or modification for any other purpose.         -- #}
+{# --                                                                                                                                                       -- #}
+{# -- =============================================================================                                                                         -- #}
+{# --                                                                                                                                                       -- #}
+{# -- DBMS Name          : SQL Server                                                                                                                       -- #}
+{# -- Template Name      : wsl_sqlserver_utility_dv2                                                                                                        -- #}
+{# -- Template Version   : 8.0.1.0                                                                                                                          -- #}
+{# -- Description        : Generic macros that can be used to define specific templates for SQL Server data vault procedures                                -- #}
+{# --                                                                                                                                                       -- #}
+{# -- =============================================================================                                                                         -- #}
+{# --                                                                                                                                                       -- #}
+{# --                                                                                                                                                       -- #}
+{# -- Notes / History                                                                                                                                       -- #}
+{# --                                                                                                                                                       -- #)
+
+{# -- This macro adds hub hash key calculations                                   -- #}
+{% macro addHubHashKey(hashColumn, indentStr = "               ") %}
+{#=====================================================================================#}
+  {%- set hashFunctionPatBeg  = "CONVERT(CHAR(32), HASHBYTES('md5',"                            -%}
+  {%- set hashFunctionPatEnd  = "), 2)"                                   -%}
+  {%- set hashColTransPattern = "COALESCE(CAST([SRCCOL] AS VARCHAR(MAX)),'null')"  -%}
+  {%- set hashConcatPattern   = " +'||'+"                                          -%}
+{#=====================================================================================#}
+  {%- for hashSource in hashColumn.hashKeySources -%}
+    {%- if loop.first -%}
+      {{- hashFunctionPatBeg -}}{%br%}
+    {%- endif -%}
+    {{indentStr}}{{- hashColTransPattern.replace("[SRCCOL]",hashSource.source) -}}
+    {%- if not loop.last -%}
+      {{- hashConcatPattern -}}{%br%}
+    {%- else -%}
+      {%br%}{{indentStr}}{{- hashFunctionPatEnd -}}
+    {%- endif -%}
+  {%- endfor -%}
+{% endmacro %}
+
+{# -- This macro adds link hash key calculations                                  -- #}
+{% macro addLinkHashKey(hashColumn, indentStr = "               ") %}
+{#=====================================================================================#}
+  {%- set hashFunctionPatBeg  = "CONVERT(CHAR(32), HASHBYTES('md5',"                            -%}
+  {%- set hashFunctionPatEnd  = "), 2)"                                   -%}
+  {%- set hashColTransPattern = "COALESCE(CAST([SRCCOL] AS VARCHAR(MAX)),'null')"  -%}
+  {%- set hashConcatPattern   = " +'||'+"                                          -%}
+{#=====================================================================================#}
+  {%- for hashSource in hashColumn.hashKeySources -%}
+    {%- if loop.first -%}
+      {{- hashFunctionPatBeg -}}{%br%}
+    {%- endif -%}
+    {{indentStr}}{{- hashColTransPattern.replace("[SRCCOL]",hashSource.source) -}}
+    {%- if not loop.last -%}
+      {{- hashConcatPattern -}}{%br%}
+    {%- else -%}
+      {%br%}{{indentStr}}{{- hashFunctionPatEnd -}}
+    {%- endif -%}
+  {%- endfor -%}
+{% endmacro %}
+
+{# -- This macro adds change hash key calculations                                 -- #}
+{% macro addChangeHashKey(hashColumn, indentStr = "               ") %}
+{#=====================================================================================#}
+  {%- set hashFunctionPatBeg  = "CONVERT(CHAR(32), HASHBYTES('md5',"                            -%}
+  {%- set hashFunctionPatEnd  = "), 2)"                                   -%}
+  {%- set hashColTransPattern = "COALESCE(CAST([SRCCOL] AS VARCHAR(MAX)),'null')"  -%}
+  {%- set hashConcatPattern   = " +'||'+"                                          -%}
+{#=====================================================================================#}
+  {%- for hashSource in hashColumn.hashKeySources -%}
+    {%- if loop.first -%}
+      {{- hashFunctionPatBeg -}}{%br%}
+    {%- endif -%}
+    {{indentStr}}{{- hashColTransPattern.replace("[SRCCOL]",hashSource.source) -}}
+    {%- if not loop.last -%}
+      {{- hashConcatPattern -}}{%br%}
+    {%- else -%}
+      {%br%}{{indentStr}}{{- hashFunctionPatEnd -}}
+    {%- endif -%}
+  {%- endfor -%}
+{% endmacro %}
+
+{# -- This macro adds the target columns and dss columns of the destination table-- #}
+{% macro addSetInsertTargetColumns(indentString = "  ") %}
+  {%- for column in table.columns %}
+    {%- set sTargetColumn = column.name -%} 
+    {%- if loop.first -%} 
+      {{indentString}}( {{sTargetColumn}}
+    {%- else -%}
+      {{indentString}}, {{sTargetColumn}}
+    {%- endif -%}
+    {%- if loop.last -%}
+      ){%br%}
+    {%- else -%}
+      {%br%}
+    {%- endif -%}
+  {%- endfor %}
+{% endmacro %}
+
+{# --This macro adds the distinct keyword if configured -- #}
+{% macro distinct() %}
+{%- if table.sourceJoinDetails.distinct -%}DISTINCT{%- endif -%}
+{% endmacro %}
+
+{# -- This macro adds the source columns and dss columns for stage objects -- #}
+{% macro addSetInsertColumns(indentString = "       ") %}
+  {%- for column in table.columns %}
+    {%- if not loop.first -%}{{indentString}}, {% endif %}
+    {%- if column.transform | trim != "" -%}
+      {{column.transform | trim }}
+    {%- elseif column.hubHashKey -%}
+      {{- addHubHashKey(hashColumn = column) -}} 
+    {%- elseif column.linkHashKey -%}
+      {{- addLinkHashKey(hashColumn = column) -}} 
+    {%- elseif column.changeHashKey -%}
+      {{- addChangeHashKey(hashColumn = column) -}}
+    {%- elseif column.updateTime or column.createTime -%} 
+      @v_current_datetime
+    {%- else -%}
+      {{- column.source -}}
+    {%- endif %} AS {{column.name}} {%br%}
+  {%- endfor %}
+{% endmacro %}
+
+{# -- This macro adds the source columns and dss columns for perm objects -- #}
+{% macro addSetInsertColumnsPerm(indentString = "       ") %}
+  {%- for column in table.columns %}
+    {%- if not loop.first -%}{{indentString}}, {% endif %}
+    {%- if column.transform | trim != "" -%}
+      {{column.transform | trim }}
+    {%- elseif column.dssVersion -%}
+      ISNULL(current_rows.{{column.name}},0) + 1
+    {%- elseif column.updateTime or column.createTime or column.dssStartDate -%} 
+      @v_current_datetime
+    {%- else -%}
+      {{- column.source -}}
+    {%- endif %} AS {{column.name}} {%br%}
+  {%- endfor %}
+{% endmacro %}
+
+{# -- This macro inserts the where not exists query for a hub -- #}
+{% macro addHubWhereNotExists(indent="        ") %}
+{%- if table.sourceJoinDetails.where | trim != "" %}
+AND NOT EXISTS ({%br%}
+{%- else %}
+WHERE NOT EXISTS ({%br%}
+{%- endif %}
+{{indent}}SELECT 1{%br%}
+{{indent}}FROM   [TABLEOWNER].[{{table.name}}] {{table.name}}{%br%}
+{%- from table.columns as column where column.hubHashKey and column.artificial %} 
+  {%- set outerLoop = loop %}
+  {%- for businessKeyColumn in column.hashKeyImmediateSources %}
+    {%- if outerLoop.first and loop.first %}{{indent}}WHERE  {% else %}{{indent}}AND    {% endif %}
+    {{- businessKeyColumn.source}} = {{table.name}}.{{businessKeyColumn.name}}{%br%}
+  {%- endfor %}
+{%- endfrom %}
+{{indent}}){%br%}
+{% endmacro %}
+
+{# -- This macro inserts the where not exists query for a link -- #}
+{% macro addLinkWhereNotExists(indent="        ") %}
+{%- if table.sourceJoinDetails.where | trim != "" %}
+AND NOT EXISTS ({%br%}
+{%- else %}
+WHERE NOT EXISTS ({%br%}
+{%- endif %}
+{{indent}}SELECT 1{%br%}
+{{indent}}FROM   [TABLEOWNER].[{{table.name}}] {{table.name}}{%br%}
+{%- from table.columns as column where column.linkHashKey and column.artificial %} {#- -- The "primary" hash key for the link table is marked as artificial -- #}
+  {%- set outerLoop = loop %}
+  {%- for hashKeySourceColumn in column.hashKeyImmediateSources %}
+    {%- if outerLoop.first and loop.first %}{{indent}}WHERE  {% else %}{{indent}}AND    {% endif %}
+    {{- hashKeySourceColumn.source}} = {{table.name}}.{{hashKeySourceColumn.name}}{%br%}
+  {%- endfor %}
+{%- endfrom %}
+{{indent}}){%br%}
+{% endmacro %}
+
+{# -- This macro inserts the where not exists query for a satellite -- #}
+{% macro addSatWhereNotExists(indent="        ") %}
+{%- if table.sourceJoinDetails.where | trim != "" %}
+AND NOT EXISTS ({%br%}
+{%- else %}
+WHERE NOT EXISTS ({%br%}
+{%- endif %}
+{{indent}}SELECT 1{%br%}
+{{indent}}FROM   [TABLEOWNER].[{{table.name}}] {{table.name}}{%br%}
+{%- from table.columns as column where column.linkHashKey or column.hubHashKey or column.changeHashKey or column.dssStartDate -%} 
+  {%- if loop.first %}{{indent}}WHERE  {% else %}{{indent}}AND    {% endif -%}
+  {%- if column.dssStartDate %}current_rows.{{column.name}}
+  {%- else -%}{{column.source}}{%- endif %} = {{table.name}}.{{column.name}}{%br%}
+{%- endfrom %}
+{{indent}}){%br%}
+{% endmacro %}
+
+{# -- This macro inserts the query to find the current row for a satellite -- #}
+{% macro addSatCurrentVersion(indent="        ") %}
+LEFT OUTER JOIN ({%br%}
+{{indent}}SELECT
+{%- from table.columns as column where column.hubHashKey or column.linkHashKey %} 
+  {%- if loop.first %} {% else %}{{indent}}, {% endif %}{{table.name}}.{{column.name}}{%br%}
+{%- endfrom %}
+{%- from table.columns as column where column.dssStartDate or column.dssVersion %} 
+  {{indent}}   , MAX({{table.name}}.{{column.name}}) AS {{column.name}}{%br%}
+{%- endfrom %}
+{{indent}}FROM   [TABLEOWNER].[{{table.name}}] {{table.name}}{%br%}
+{%- from table.columns as column where column.hubHashKey or column.linkHashKey %} 
+  {%- if loop.first %}{{indent}}GROUP BY {% else %}{{indent}}, {% endif %}{{table.name}}.{{column.name}}{%br%}
+{%- endfrom %}
+{{indent}}) AS current_rows{%br%}
+{%- from table.columns as column where column.hubHashKey or column.linkHashKey %} 
+  {%- if loop.first %}      ON  {% else %}      AND {% endif %}{{column.source}} = current_rows.{{column.name}}{%br%}
+{%- endfrom %}
+{% endmacro %}
+
+
+{# -- This macro inserts the procedure header including parameters and declarations -- #}
+{% macro addProcedureHeader(deleteBeforeInsert, deleteBeforeInsertTruncate) %}
+CREATE PROCEDURE {{settings.procedureName}}{%br%}
+{{addProcedureParameters()}}{%br%}
+AS{%br%}
+{{addProcedureOptions()}}{%br%}
+{{addProcedureDeclares(deleteBeforeInsert, deleteBeforeInsertTruncate)}}{%br%}
+{% endmacro %}
+
+{# -- This macro inserts the procedure comment block -- #}
+{% macro addProcedureCommentBlock(indentString = "  ", commentMessage = "Hello") %}
+{{- indentString -}}--====================================================={%br%}
+{{- indentString -}}-- {{commentMessage}}{%br%}
+{{- indentString -}}--====================================================={%br%}
+{% endmacro %}
+
+{# -- This macro inserts the procedure parameters-- #}
+{% macro addProcedureParameters() %}
+  @p_sequence         INTEGER{%br%}
+, @p_job_name         VARCHAR(256){%br%}
+, @p_task_name        VARCHAR(256){%br%}
+, @p_job_id           INTEGER{%br%}
+, @p_task_id          INTEGER{%br%}
+, @p_return_msg       VARCHAR(256) OUTPUT{%br%}
+, @p_status           INTEGER      OUTPUT
+{% endmacro %}
+
+{# -- This macro inserts the procedure options -- #}
+{% macro addProcedureOptions() %}
+  SET XACT_ABORT OFF  -- Turn off auto abort on errors{%br%}
+  SET NOCOUNT ON      -- Turn off row count messages
+{% endmacro %}
+
+{# -- This macro inserts the procedure declarations -- #}
+{% macro addProcedureDeclares(deleteBeforeInsert, deleteBeforeInsertTruncate) %}
+  {{- addProcedureCommentBlock(commentMessage = "Control variables used in most programs")}}
+  DECLARE{%br%}
+    @v_msgtext               VARCHAR(255)  -- Text for audit_trail{%br%}
+  , @v_sql                   NVARCHAR(255) -- Text for SQL statements{%br%}
+  , @v_step                  INTEGER       -- return code{%br%}
+  , @v_insert_count          INTEGER       -- no of records inserted{%br%}
+  {%- if deleteBeforeInsert and not deleteBeforeInsertTruncate %}  , @v_delete_count          INTEGER       -- no of records deleted{%br%} {%- endif %}
+  , @v_return_status         INTEGER       -- Update result status{%br%}
+  , @v_current_datetime      DATETIME      -- Used for date insert{%br%}{%br%}
+  {{- addProcedureCommentBlock(commentMessage = "General Variables")}}
+{% endmacro %}
+
+{# -- This macro inserts the procedure exception handler -- #}
+{% macro addReturnMessage(deleteBeforeInsert, deleteBeforeInsertTruncate) %}
+    SET @p_status = 1{%br%}
+    SET @p_return_msg = '{{table.name}} updated. '{%br%}
+      {%- if deleteBeforeInsert and not deleteBeforeInsertTruncate %}      + CONVERT(VARCHAR,@v_delete_count) + ' records deleted. '{%br%} {%- endif %}
+      + CONVERT(VARCHAR,@v_insert_count) + ' new records.'{%br%}{%br%}
+    RETURN 0{%br%}{%br%}
+{% endmacro %}
+
+{# -- This macro inserts the procedure exception handler -- #}
+{% macro addProcedureException() %}
+  BEGIN CATCH{%br%}{%br%} 
+    SET @p_status = -2{%br%} 
+    SET @p_return_msg = SUBSTRING('{{settings.procedureName}} FAILED with error '{%br%}
+      + CONVERT(VARCHAR,ISNULL(ERROR_NUMBER(),0)){%br%} 
+      + ' Step ' + CONVERT(VARCHAR,ISNULL(@v_step,0)){%br%} 
+      + '. Error Msg: ' + ERROR_MESSAGE(),1,255){%br%}{%br%}
+  END CATCH{%br%}
+  IF XACT_STATE() <> 0{%br%}
+  BEGIN{%br%}
+    ROLLBACK TRANSACTION{%br%}
+  END{%br%}{%br%}
+  RETURN 0{%br%}
+{% endmacro %}

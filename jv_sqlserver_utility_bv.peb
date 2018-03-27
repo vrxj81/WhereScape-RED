@@ -1,0 +1,195 @@
+{# --                                                                                                                                                       -- #}
+{# -- =============================================================================                                                                         -- #}
+{# --                                                                                                                                                       -- #}
+{# --                                                                                                                                                       -- #}
+{# -- Notes / History                                                                                                                                       -- #}
+{# --                                                                                                                                                       -- #}
+
+{# -- This macro adds the PIT from clause with the hub table -- #}
+{% macro addPITFromClause(snapshotColumn = "dss_snapshot_date", indentString = "       ") %}
+  {%- set hubTable = "" -%}
+  {%- set satTables = "" -%}
+  {%- from table.columns as column where column.sourceColumn is defined -%}
+    {%- fetch column.sourceColumn -%}
+    {%- if column.sourceColumn.hubHashKey -%}
+      {%- set joinColumn = column.sourceColumn.name -%}
+    {%- endif -%}
+  {%- endfrom -%}
+  {%- from table.columns as column where column.sourceTable is defined -%}
+    {%- fetch column.sourceTable -%}
+    {%- if column.sourceTable.objectType.name == "Hub" -%}
+      {%- set hubTable = column.sourceTable.name -%}
+    {%- elseif column.sourceTable.objectType.name == "Satellite" and not satTables contains column.sourceTable.name -%}
+      {%- set satTables = satTables + column.sourceTable.name + ";" -%}
+    {%- endif -%}
+  {%- endfrom -%}
+  {{- indentString -}}FROM [TABLEOWNER].[{{hubTable}}] {{hubTable}}{%- br -%}
+  
+  {%- set newLine = "
+" %}
+  {%- for satTable in (satTables.replace(";", newLine) | lines) -%}
+	  {{- indentString -}}LEFT OUTER JOIN [TABLEOWNER].[{{satTable}}] {{satTable}}{%- br -%}
+	  {{- indentString -}}ON {{satTable}}.{{joinColumn}} = {{hubTable}}.{{joinColumn}}{%- br -%}
+	  {%- from table.columns as column where column.sourceColumn is defined -%}
+           {%- fetch column.sourceColumn -%}
+           {%- if column.sourceColumn.dssStartDate -%}
+		{{- indentString -}}AND {{satTable}}.{{column.sourceColumn.name}} = ({%- br -%}
+		{{- indentString -}}{{- indentString -}}SELECT MAX(z.{{column.sourceColumn.name}}) FROM [TABLEOWNER].[{{satTable}}] z{%- br -%}
+		{{- indentString -}}{{- indentString -}}WHERE z.{{joinColumn}} = {{hubTable}}.{{joinColumn}}{%- br -%}
+		{{- indentString -}}{{- indentString -}}AND z.{{column.sourceColumn.name}} <= getdate(){%- br -%}
+		{{- indentString -}}){%- br -%}
+          {%- endif -%}
+	{%- endfrom -%}
+  {%- endfor -%}
+{% endmacro %}
+
+{# -- This macro adds the Type 1 Dimension from clause with the hub table -- #}
+{% macro addT1DimFromClause(snapshotColumn = "dss_snapshot_date", indentString = "       ") %}
+  {%- set hubTable = "" -%}
+  {%- set satTables = "" -%}
+  {%- from table.columns as column where column.sourceColumn is defined -%}
+    {%- fetch column.sourceColumn -%}
+    {%- if column.sourceColumn.hubHashKey -%}
+      {%- set joinColumn = column.sourceColumn.name -%}
+    {%- endif -%}
+  {%- endfrom -%}
+  {%- from table.columns as column where column.sourceTable is defined -%}
+    {%- fetch column.sourceTable -%}
+    {%- if column.sourceTable.objectType.name == "Hub" -%}
+      {%- set hubTable = column.sourceTable.name -%}
+    {%- elseif column.sourceTable.objectType.name == "Satellite" and not satTables contains column.sourceTable.name -%}
+      {%- set satTables = satTables + column.sourceTable.name + ";" -%}
+    {%- endif -%}
+  {%- endfrom -%}
+  {{- indentString -}}FROM [TABLEOWNER].[{{hubTable}}] {{hubTable}}{%- br -%}
+  
+  {%- set newLine = "
+" %}
+  {%- for satTable in (satTables.replace(";", newLine) | lines) -%}
+	  {{- indentString -}}INNER JOIN [TABLEOWNER].[{{satTable}}] {{satTable}}{%- br -%}
+	  {{- indentString -}}ON {{satTable}}.{{joinColumn}} = {{hubTable}}.{{joinColumn}}{%- br -%}
+	  {%- from table.columns as column where column.sourceTable is defined -%}
+           {%- fetch column.sourceTable -%}
+           {%- if column.sourceTable.name == satTable -%}
+             {%- from column.sourceTable.columns as startDateCol where startDateCol.dssStartDate -%}
+		  {{- indentString -}}AND {{satTable}}.{{startDateCol.name}} = ({%- br -%}
+		  {{- indentString -}}{{- indentString -}}SELECT MAX(z.{{startDateCol.name}}) FROM [TABLEOWNER].[{{satTable}}] z{%- br -%}
+		  {{- indentString -}}{{- indentString -}}WHERE z.{{joinColumn}} = {{hubTable}}.{{joinColumn}}{%- br -%}
+    		  {{- indentString -}}){%- br -%}
+            {%- endfrom -%}
+          {%- endif -%}
+	{%- endfrom -%}
+  {%- endfor -%}
+{% endmacro %}
+
+{# -- This macro adds the source columns and dss columns -- #}
+{% macro addSetInsertColumns(indent = "       ") %}
+  {%- from table.columns as column where (not column.artificial) or (column.artificial and addArtificialKey) or (column.artificial and (not addArtificialKey) and column.transform | trim != "")%}
+    {%- if not loop.first %}{{indent}}, {% else %} {% endif %}
+    {%- if column.transform | trim != "" %}
+      {{column.transform | trim}}
+    {%- else %}
+      {{column.source}}
+    {%- endif %}
+    AS {{column.name}}{%br%}
+  {%- endfrom %}
+{% endmacro %}
+
+
+{# -- This macro adds the target columns and dss columns of the destination table-- #}
+{% macro addSetInsertTargetColumns(indentString = "      ") %}
+  {%- for column in table.columns %}
+    {%- set sTargetColumn = column.name -%} 
+    {%- if loop.first -%} 
+      {{indentString}}( {{sTargetColumn}}
+    {%- else -%}
+      {{indentString}}, {{sTargetColumn}}
+    {%- endif -%}{%br%}
+  {%- endfor %}
+  )
+{% endmacro %}
+
+{# --This macro adds the distinct keyword if configured -- #}
+{% macro distinct() %}
+{%- if table.sourceJoinDetails.distinct -%}DISTINCT{%- endif -%}
+{% endmacro %}
+
+{# ----------------------------------------------------------------------------------------------------------------------------------------------------------- #}
+{# -- The following macros are sql server procedure wrapper specific macros                                                                                 -- #}
+{# ----------------------------------------------------------------------------------------------------------------------------------------------------------- #}
+
+{# -- This macro inserts the procedure header including parameters and declarations -- #}
+{% macro addProcedureHeader(deleteBeforeInsert, deleteBeforeInsertTruncate) %}
+CREATE PROCEDURE {{settings.procedureName}}{%br%}
+{{addProcedureParameters()}}{%br%}
+AS{%br%}
+{{addProcedureOptions()}}{%br%}
+{{addProcedureDeclares(deleteBeforeInsert, deleteBeforeInsertTruncate)}}{%br%}
+{% endmacro %}
+
+{# -- This macro inserts the procedure comment block -- #}
+{% macro addProcedureCommentBlock(indentString = "  ", commentMessage = "Hello") %}
+{{- indentString -}}--====================================================={%br%}
+{{- indentString -}}-- {{commentMessage}}{%br%}
+{{- indentString -}}--====================================================={%br%}
+{% endmacro %}
+
+{# -- This macro inserts the procedure parameters-- #}
+{% macro addProcedureParameters() %}
+  @p_sequence         INTEGER{%br%}
+, @p_job_name         VARCHAR(256){%br%}
+, @p_task_name        VARCHAR(256){%br%}
+, @p_job_id           INTEGER{%br%}
+, @p_task_id          INTEGER{%br%}
+, @p_return_msg       VARCHAR(256) OUTPUT{%br%}
+, @p_status           INTEGER      OUTPUT
+{% endmacro %}
+
+{# -- This macro inserts the procedure options -- #}
+{% macro addProcedureOptions() %}
+  SET XACT_ABORT OFF  -- Turn off auto abort on errors{%br%}
+  SET NOCOUNT ON      -- Turn off row count messages
+{% endmacro %}
+
+{# -- This macro inserts the procedure declarations -- #}
+{% macro addProcedureDeclares(deleteBeforeInsert, deleteBeforeInsertTruncate) %}
+  {{- addProcedureCommentBlock(commentMessage = "Control variables used in most programs")}}
+  DECLARE{%br%}
+    @v_msgtext               VARCHAR(255)  -- Text for audit_trail{%br%}
+  , @v_sql                   NVARCHAR(255) -- Text for SQL statements{%br%}
+  , @v_step                  INTEGER       -- return code{%br%}
+  , @v_insert_count          INTEGER       -- no of records inserted{%br%}
+  {%- if deleteBeforeInsert and not deleteBeforeInsertTruncate %}
+  , @v_delete_count          INTEGER       -- no of records deleted{%br%}
+  {%- endif %}
+  , @v_return_status         INTEGER       -- Update result status{%br%}
+  , @v_current_datetime      DATETIME      -- Used for date insert{%br%}{%br%}
+  {{- addProcedureCommentBlock(commentMessage = "General Variables")}}
+{% endmacro %}
+
+{# -- This macro inserts the procedure exception handler -- #}
+{% macro addReturnMessage(deleteBeforeInsert, deleteBeforeInsertTruncate) %}
+    SET @p_status = 1{%br%}
+    SET @p_return_msg = '{{table.name}} updated. '{%br%}
+  {%- if deleteBeforeInsert and not deleteBeforeInsertTruncate %}
+      + CONVERT(VARCHAR,@v_delete_count) + ' records deleted. '{%br%}
+  {%- endif %}
+      + CONVERT(VARCHAR,@v_insert_count) + ' records inserted.'{%br%}{%br%}
+    RETURN 0{%br%}{%br%}
+{% endmacro %}
+
+{# -- This macro inserts the procedure exception handler -- #}
+{% macro addProcedureException() %}
+  BEGIN CATCH{%br%}{%br%} 
+    SET @p_status = -2{%br%} 
+    SET @p_return_msg = SUBSTRING('{{settings.procedureName}} FAILED with error '{%br%}
+      + CONVERT(VARCHAR,ISNULL(ERROR_NUMBER(),0)){%br%} 
+      + ' Step ' + CONVERT(VARCHAR,ISNULL(@v_step,0)){%br%} 
+      + '. Error Msg: ' + ERROR_MESSAGE(),1,255){%br%}{%br%}
+  END CATCH{%br%}
+  IF XACT_STATE() <> 0{%br%}
+  BEGIN{%br%}
+    ROLLBACK TRANSACTION{%br%}
+  END{%br%}{%br%}
+  RETURN 0{%br%}
+{% endmacro %}
