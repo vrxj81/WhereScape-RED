@@ -8,5 +8,3 @@ CREATE OR ALTER VIEW {{table.target.schema}}.{{table.name}}{%br%}
 AS SELECT{%br%}
 {{- addSetInsertColumns() }}
 {{- addT1DimFromClause() }}
-
-
